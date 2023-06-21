@@ -6,9 +6,8 @@ import climage # paru python-climage
 import requests
 import tempfile
 import datetime
-import yt_dlp
+import yt_dlp # paru yt-dlp
 import subprocess
-#os.path.insert('../minq-caching-thing')
 import minq_caching_thing; mct = minq_caching_thing.Minq_caching_thing()
 import urllib
 import sys
@@ -16,18 +15,72 @@ import json
 import os
 import threading
 
-THUMB_SIZE = 80
+SETTINGS_FOLDER = os.path.expanduser('~/.config/minq-youtube')
+
+SETTING_VIU_THUMB_WIDTH_NAME = 'viu-thumb-width'
+SETTING_VIU_THUMB_WIDTH_DEFAULT_VALUE = 80
 
 class Ytdlp_silent_logger:
     def error(msg):
-        #print("Captured Error: "+msg)
         pass
     def warning(msg):
-        #print("Captured Warning: "+msg)
         pass
     def debug(msg):
-        #print("Captured Log: "+msg)
         pass
+
+def del_setting(name):
+    file = os.path.join(SETTINGS_FOLDER, name)
+    os.remove(file)
+
+def set_setting_str(name, value):
+    file = os.path.join(SETTINGS_FOLDER, name)
+    os.makedirs(os.path.dirname(file), exist_ok=True)
+
+    with open(file, 'w') as f:
+        f.write(value)
+
+def get_setting_str(name, default_value):
+    file = os.path.join(SETTINGS_FOLDER, name)
+    os.makedirs(os.path.dirname(file), exist_ok=True)
+
+    if not os.path.isfile(file):
+        set_setting_str(name, default_value)
+    
+    with open(file, 'r') as f:
+        return f.read()
+
+def get_setting_int(name, default_value):
+    value = get_setting_str(name, str(default_value))
+
+    try:
+        return int(value)
+    except ValueError:
+        pass
+
+    file = os.path.join(SETTINGS_FOLDER, name)
+    slow_print(f'setting `{name}` located at `{file}` has invalid value `{value}`; overwriting with new value - `{default_value}`')
+
+    with open(file, 'w') as f:
+        f.write(str(default_value))
+
+    return get_setting_int(name, default_value)
+
+def print_image(path):
+
+    width = get_setting_int(SETTING_VIU_THUMB_WIDTH_NAME, SETTING_VIU_THUMB_WIDTH_DEFAULT_VALUE)
+    term(['viu', '--width', str(width), '--', path])
+    print() # leve an empty line since wezterm is acting like a piece of shit otherwise
+
+    if False:
+        image_data = climage.convert(
+            path,
+            is_unicode=True,
+            is_truecolor=True, is_256color=False, is_8color=False,
+            width=CLIMAGE_THUMB_SIZE,
+            # palette : Sets mapping of RGB colors scheme to system colors. Options are : [“default”, “xterm”, “linuxconsole”, “solarized”, “rxvt”, “tango”, “gruvbox”, “gruvboxdark”]. Default is “default”.
+        )
+
+        print(image_data)
 
 def slow_print(*a, **kw):
     print(*a, **kw)
@@ -134,13 +187,18 @@ def interactive_youtube_browser(search_term):
         elif cur_item_idx >= len(video_urls):
             print('getting more results...')
             results = search.get_next_results()
-            video_urls += [video.watch_url for video in results] # TODO is it possible that this returns an empty list?
+            if results == None: # TODO can we cache this somehow?
+                slow_print('no more results to show')
+                cur_item_idx -= 1
+                continue
+            else:
+                video_urls += [video.watch_url for video in results] # TODO is it possible that this returns an empty list?
 
         video_url = video_urls[cur_item_idx]
 
         cache_url = 'yt-dlp-video-info://' + video_url
         try:
-            video_info = ytdl.extract_info(video_url, download=False)
+            video_info = ytdl.extract_info(video_url, download=False) # TODO this takes too much time, let's use the cached version instead if available
         except yt_dlp.utils.DownloadError:
             video_info = get_cached_url(cache_url, return_path=False)
             video_info = json.loads(video_info)
@@ -152,11 +210,13 @@ def interactive_youtube_browser(search_term):
         uploader = video_info['uploader']
         duration = video_info['duration_string'] # video_info['duration']
         upload_date = video_info['upload_date'] # video_info['release_date'] is not always defined
-        likes = video_info['like_count']
         views = video_info['view_count']
         categories = video_info['categories']
         tags = video_info['tags']
         thumb_url = video_info['thumbnail']
+
+        try: likes = video_info['like_count']
+        except KeyError: likes = -1
 
         y3,y2,y1,y0,m1,m0,d1,d0 = upload_date
         upload_year = y3 + y2 + y1 + y0
@@ -164,13 +224,6 @@ def interactive_youtube_browser(search_term):
         upload_day = d1 + d0
 
         thumb_file = download_file(thumb_url)
-        thumb_data = climage.convert(
-            thumb_file,
-            is_unicode=True,
-            is_truecolor=True, is_256color=False, is_8color=False,
-            width=THUMB_SIZE,
-            # palette : Sets mapping of RGB colors scheme to system colors. Options are : [“default”, “xterm”, “linuxconsole”, “solarized”, “rxvt”, “tango”, “gruvbox”, “gruvboxdark”]. Default is “default”.
-        )
 
         print()
         print(f'title   : {title}')
@@ -180,7 +233,7 @@ def interactive_youtube_browser(search_term):
 
         #print(f'url     : {video_url}')
         #print(f'thumb   : {thumb_file}')
-        print(thumb_data)
+        print_image(thumb_file)
 
         cmd = input('> ')
 
@@ -193,6 +246,9 @@ def interactive_youtube_browser(search_term):
 
             case 'exit':
                 break
+
+            # TODO
+            #case 'help':
 
             case 'next' | 'n' | '':
                 cur_item_idx += 1
@@ -208,6 +264,31 @@ def interactive_youtube_browser(search_term):
                 term = input('Enter search term > ')
                 return interactive_youtube_browser(term)
 
+            case 'settings'|'setting':
+                while True:
+                    act = input('Enter action > ')
+
+                    match act:
+                        case 'change'|'set':
+                            name = input('Enter setting name > ')
+                            value = input('Enter new value > ')
+                            set_setting_str(name, value)
+                        case 'delete'|'del':
+                            name = input('Enter setting name > ')
+                            del_setting(name)
+                        case 'exit'|'e'|'ok'|'done':
+                            break
+                        case 'list'|'ls':
+                            for (path,folders,files) in os.walk(SETTINGS_FOLDER):
+                                for file in files:
+                                    path_to_setting = os.path.join(path, file)
+                                    name = path_to_setting[len(SETTINGS_FOLDER):]
+                                    if name.startswith('/'): # hacky but works
+                                        name = name[1:]
+                                    print(f'name: `{name}` ; value: `{get_setting_str(path_to_setting, "unreachable")}`')
+                        case other:
+                            slow_print(f'unknown action: {act}')
+
             case 'tags':
                 slow_print(tags)
 
@@ -219,10 +300,11 @@ def interactive_youtube_browser(search_term):
 
             case other:
                 slow_print(f'unknown command: `{cmd}`')
+                # TODO print available commands afterwards
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Command line port of youtube')
-    parser.add_argument('search_term', help='String to search for')
+    parser.add_argument('search_term', help='Term to search for')
     args = parser.parse_args()
 
     interactive_youtube_browser(args.search_term)
