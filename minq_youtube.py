@@ -14,11 +14,15 @@ import sys
 import json
 import os
 import threading
+import time
 
 SETTINGS_FOLDER = os.path.expanduser('~/.config/minq-youtube')
 
 SETTING_VIU_THUMB_WIDTH_NAME = 'viu-thumb-width'
 SETTING_VIU_THUMB_WIDTH_DEFAULT_VALUE = 80
+
+SETTING_CACHE_VALIDITY_NAME = 'cache-validity'
+SETTING_CACHE_VALIDITY_DEFAULT_VALUE = 60 * 60 * 2 # 2 hours
 
 class Ytdlp_silent_logger:
     def error(msg):
@@ -103,11 +107,14 @@ def get_temp_file_name():
     with tempfile.NamedTemporaryFile(mode='wb', delete=False) as f:
         return f.name
 
+def error_no_cache_no_internet(url):
+    print(f'ERROR: no internet + content not cached: `{url}`')
+    sys.exit(1)
+
 def get_cached_url(url, return_path):
     content = mct.get_url(url, return_path=return_path)
     if content == None:
-        print(f'ERROR: no internet + content not cached: `{url}`')
-        sys.exit(1)
+        error_no_cache_no_internet(url)
     return content
 
 def download_file(url):
@@ -157,6 +164,7 @@ def play_video(file):
     term(['mpv', '--', file], silent=True, detach=True)
 
 def interactive_youtube_browser(search_term):
+
     yt_dlp_options = {
         'quiet': True,
         'logger': Ytdlp_silent_logger,
@@ -164,20 +172,32 @@ def interactive_youtube_browser(search_term):
     ytdl = yt_dlp.YoutubeDL(yt_dlp_options)
 
     print(f'searching for `{search_term}`...')
-
     search = pytube.Search(search_term)
 
-    cache_url = 'pytube-search://' + search_term
+    cache_url = 'pytube-search-with-timestamp://' + search_term
 
-    try:
-        results = search.results # TODO somehow avoid this and only use the bottom one
-    except urllib.error.URLError:
-        cached = get_cached_url(cache_url, return_path=False)
-        video_urls = json.loads(cached)
+    refresh = True
+    cached = mct.get_url(cache_url, return_path=False)
+    if cached != None:
+        cache_time, cache_data = json.loads(cached)
+        now = time.time()
+        cache_validity = get_setting_int(SETTING_CACHE_VALIDITY_NAME, SETTING_CACHE_VALIDITY_DEFAULT_VALUE)
+        if abs(now - cache_time) < cache_validity: # taking into account systems with fucked up clock
+            refresh = False
+
+    if refresh:
+        try:
+            results = search.results
+        except urllib.error.URLError:
+            if cached == None:
+                error_no_cache_no_internet(cache_url)
+            video_urls = cache_data
+        else:
+            video_urls = [video.watch_url for video in results]
+            data_to_cache = [time.time(), video_urls]
+            mct.cache_url(cache_url, json.dumps(data_to_cache), blocking=False)
     else:
-        video_urls = [video.watch_url for video in results]
-
-        mct.cache_url(cache_url, json.dumps(video_urls), blocking=False)
+        video_urls = cache_data
 
     cur_item_idx = 0
     while True:
@@ -185,20 +205,15 @@ def interactive_youtube_browser(search_term):
             cur_item_idx = 0
 
         elif cur_item_idx >= len(video_urls):
-            print('getting more results...')
-            results = search.get_next_results()
-            if results == None: # TODO can we cache this somehow?
-                slow_print('no more results to show')
-                cur_item_idx -= 1
-                continue
-            else:
-                video_urls += [video.watch_url for video in results] # TODO is it possible that this returns an empty list?
+            slow_print('no more results to show')
+            cur_item_idx -= 1
+            continue
 
         video_url = video_urls[cur_item_idx]
 
         cache_url = 'yt-dlp-video-info://' + video_url
         try:
-            video_info = ytdl.extract_info(video_url, download=False) # TODO this takes too much time, let's use the cached version instead if available
+            video_info = ytdl.extract_info(video_url, download=False) # TODO this takes too much time, let's use the cached version instead if available ; mby cache the time as well and determine if restart is needed
         except yt_dlp.utils.DownloadError:
             video_info = get_cached_url(cache_url, return_path=False)
             video_info = json.loads(video_info)
