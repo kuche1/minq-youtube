@@ -16,6 +16,8 @@ import os
 import threading
 import time
 
+################################# settings - variables
+
 SETTINGS_FOLDER = os.path.expanduser('~/.config/minq-youtube')
 
 SETTING_VIU_THUMB_WIDTH_NAME = 'viu-thumb-width'
@@ -24,6 +26,8 @@ SETTING_VIU_THUMB_WIDTH_DEFAULT_VALUE = 80
 SETTING_CACHE_VALIDITY_NAME = 'cache-validity'
 SETTING_CACHE_VALIDITY_DEFAULT_VALUE = 60 * 60 * 2 # 2 hours
 
+################################# classes
+
 class Ytdlp_silent_logger:
     def error(msg):
         pass
@@ -31,6 +35,8 @@ class Ytdlp_silent_logger:
         pass
     def debug(msg):
         pass
+
+################################# settings - functions
 
 def del_setting(name):
     file = os.path.join(SETTINGS_FOLDER, name)
@@ -69,6 +75,8 @@ def get_setting_int(name, default_value):
 
     return get_setting_int(name, default_value)
 
+################################# IO
+
 def print_image(path):
 
     width = get_setting_int(SETTING_VIU_THUMB_WIDTH_NAME, SETTING_VIU_THUMB_WIDTH_DEFAULT_VALUE)
@@ -90,22 +98,11 @@ def slow_print(*a, **kw):
     print(*a, **kw)
     input('press enter')
 
-def term(cmds:list, silent=False, detach=False):
-    kwargs = {'check': True}
+def play_video(file):
+    term(['mpv', '--', file], silent=True, detach=True)
 
-    if silent:
-        kwargs['stdout'] = subprocess.DEVNULL
-        kwargs['stderr'] = subprocess.DEVNULL
+################################# internet
 
-    thr = threading.Thread(target=subprocess.run, args=[cmds], kwargs=kwargs)
-    thr.start()
-
-    if not detach:
-        thr.join()
-
-def get_temp_file_name():
-    with tempfile.NamedTemporaryFile(mode='wb', delete=False) as f:
-        return f.name
 
 def error_no_cache_no_internet(url):
     print(f'ERROR: no internet + content not cached: `{url}`')
@@ -160,8 +157,26 @@ def download_video(url):
 
     return resulting_file
 
-def play_video(file):
-    term(['mpv', '--', file], silent=True, detach=True)
+################################# else
+
+def term(cmds:list, silent=False, detach=False):
+    kwargs = {'check': True}
+
+    if silent:
+        kwargs['stdout'] = subprocess.DEVNULL
+        kwargs['stderr'] = subprocess.DEVNULL
+
+    thr = threading.Thread(target=subprocess.run, args=[cmds], kwargs=kwargs)
+    thr.start()
+
+    if not detach:
+        thr.join()
+
+def get_temp_file_name():
+    with tempfile.NamedTemporaryFile(mode='wb', delete=False) as f:
+        return f.name
+
+################################# main
 
 def interactive_youtube_browser(search_term):
 
@@ -252,70 +267,82 @@ def interactive_youtube_browser(search_term):
 
         cmd = input('> ')
 
-        match cmd:
-            case 'categories':
-                slow_print(categories)
+        CMD_ALL = []
+        CMD_ALL += [CMD_CATEGORIES := ['categories']]
+        CMD_ALL += [CMD_DOWNLOAD := ['download']]
+        CMD_ALL += [CMD_EXIT := ['exit', 'e']]
+        CMD_ALL += [CMD_NEXT := ['next', 'n', '']]
+        CMD_ALL += [CMD_PLAY := ['play']]
+        CMD_ALL += [CMD_PREV := ['prev', 'p']]
+        CMD_ALL += [CMD_SEARCH := ['search']]
+        CMD_ALL += [CMD_SETTINGS := ['settings', 'setting']]
+        CMD_ALL += [CMD_TAGS := ['tags']]
+        CMD_ALL += [CMD_THUMB := ['thumb']]
+        CMD_ALL += [CMD_URL := ['url']]
 
-            case 'download':
-                video_file = download_video(video_url)
+        if cmd in CMD_CATEGORIES:
+            slow_print(categories)
 
-            case 'exit':
-                break
+        elif cmd in CMD_DOWNLOAD:
+            video_file = download_video(video_url)
 
-            # TODO
-            #case 'help':
+        elif cmd in CMD_EXIT:
+            break
 
-            case 'next' | 'n' | '':
-                cur_item_idx += 1
+        elif cmd in CMD_NEXT:
+            cur_item_idx += 1
 
-            case 'play':
-                video_file = download_video(video_url) # TODO this is cancer
-                play_video(video_file)
+        elif cmd in CMD_PLAY:
+            video_file = download_video(video_url)
+            play_video(video_file)
 
-            case 'prev' | 'p':
-                cur_item_idx -= 1
+        elif cmd in CMD_PREV:
+            cur_item_idx -= 1
 
-            case 'search':
-                term = input('Enter search term > ')
-                return interactive_youtube_browser(term)
+        elif cmd in CMD_SEARCH:
+            term = input('Enter search term > ')
+            return interactive_youtube_browser(term)
 
-            case 'settings'|'setting':
-                while True:
-                    act = input('Enter action > ')
+        elif cmd in CMD_SETTINGS:
+            while True:
+                act = input('Enter action > ')
 
-                    match act:
-                        case 'change'|'set':
-                            name = input('Enter setting name > ')
-                            value = input('Enter new value > ')
-                            set_setting_str(name, value)
-                        case 'delete'|'del':
-                            name = input('Enter setting name > ')
-                            del_setting(name)
-                        case 'exit'|'e'|'ok'|'done':
-                            break
-                        case 'list'|'ls':
-                            for (path,folders,files) in os.walk(SETTINGS_FOLDER):
-                                for file in files:
-                                    path_to_setting = os.path.join(path, file)
-                                    name = path_to_setting[len(SETTINGS_FOLDER):]
-                                    if name.startswith('/'): # hacky but works
-                                        name = name[1:]
-                                    print(f'name: `{name}` ; value: `{get_setting_str(path_to_setting, "unreachable")}`')
-                        case other:
-                            slow_print(f'unknown action: {act}')
+                match act:
+                    case 'change'|'set':
+                        name = input('Enter setting name > ')
+                        value = input('Enter new value > ')
+                        set_setting_str(name, value)
+                    case 'delete'|'del':
+                        name = input('Enter setting name > ')
+                        del_setting(name)
+                    case 'exit'|'e'|'ok'|'done':
+                        break
+                    case 'list'|'ls':
+                        for (path,folders,files) in os.walk(SETTINGS_FOLDER):
+                            for file in files:
+                                path_to_setting = os.path.join(path, file)
+                                name = path_to_setting[len(SETTINGS_FOLDER):]
+                                if name.startswith('/'): # hacky but works
+                                    name = name[1:]
+                                print(f'name: `{name}` ; value: `{get_setting_str(path_to_setting, "unreachable")}`')
+                    case other:
+                        slow_print(f'unknown action: {act}')
 
-            case 'tags':
-                slow_print(tags)
+        elif cmd in CMD_TAGS:
+            slow_print(tags)
 
-            case 'thumb':
-                slow_print(thumb_file)
+        elif cmd in CMD_THUMB:
+            slow_print(thumb_file)
 
-            case 'url':
-                slow_print(video_url)
+        elif cmd in CMD_URL:
+            slow_print(video_url)
 
-            case other:
-                slow_print(f'unknown command: `{cmd}`')
-                # TODO print available commands afterwards
+        else:
+            print(f'unknown command: `{cmd}`')
+            print('available commands:')
+            for c in CMD_ALL:
+                print(f'\t{c}')
+            slow_print()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Command line port of youtube')
