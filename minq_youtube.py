@@ -178,6 +178,44 @@ def get_temp_file_name():
 
 ################################# main
 
+def settings_menu():
+    CMD_ALL = []
+    CMD_ALL += [CMD_CHANGE := ['change', 'set']]
+    CMD_ALL += [CMD_DELETE := ['delete', 'del']]
+    CMD_ALL += [CMD_EXIT := ['exit', 'e']]
+    CMD_ALL += [CMD_LIST := ['list', 'ls']]
+
+    while True:
+        act = input('Enter action > ')
+
+        if act in CMD_CHANGE:
+            name = input('Enter setting name > ')
+            value = input('Enter new value > ')
+            set_setting_str(name, value)
+
+        elif act in CMD_DELETE:
+            name = input('Enter setting name > ')
+            del_setting(name)
+
+        elif act in CMD_EXIT:
+            break
+
+        elif act in CMD_LIST:
+            for (path,folders,files) in os.walk(SETTINGS_FOLDER):
+                for file in files:
+                    path_to_setting = os.path.join(path, file)
+                    name = path_to_setting[len(SETTINGS_FOLDER):]
+                    if name.startswith('/'): # hacky but works
+                        name = name[1:]
+                    print(f'name: `{name}` ; value: `{get_setting_str(path_to_setting, "unreachable")}`')
+
+        else:
+            print(f'unknown action: `{act}`')
+            print('available actions:')
+            for c in CMD_ALL:
+                print(f'\t{c}')
+            slow_print()
+
 def interactive_youtube_browser(search_term):
 
     yt_dlp_options = {
@@ -275,7 +313,7 @@ def interactive_youtube_browser(search_term):
         CMD_ALL += [CMD_PLAY := ['play']]
         CMD_ALL += [CMD_PREV := ['prev', 'p']]
         CMD_ALL += [CMD_SEARCH := ['search']]
-        CMD_ALL += [CMD_SETTINGS := ['settings', 'setting']]
+        CMD_ALL += [CMD_SETTINGS := ['settings', 'setting', 'set']]
         CMD_ALL += [CMD_TAGS := ['tags']]
         CMD_ALL += [CMD_THUMB := ['thumb']]
         CMD_ALL += [CMD_URL := ['url']]
@@ -304,29 +342,7 @@ def interactive_youtube_browser(search_term):
             return interactive_youtube_browser(term)
 
         elif cmd in CMD_SETTINGS:
-            while True:
-                act = input('Enter action > ')
-
-                match act:
-                    case 'change'|'set':
-                        name = input('Enter setting name > ')
-                        value = input('Enter new value > ')
-                        set_setting_str(name, value)
-                    case 'delete'|'del':
-                        name = input('Enter setting name > ')
-                        del_setting(name)
-                    case 'exit'|'e'|'ok'|'done':
-                        break
-                    case 'list'|'ls':
-                        for (path,folders,files) in os.walk(SETTINGS_FOLDER):
-                            for file in files:
-                                path_to_setting = os.path.join(path, file)
-                                name = path_to_setting[len(SETTINGS_FOLDER):]
-                                if name.startswith('/'): # hacky but works
-                                    name = name[1:]
-                                print(f'name: `{name}` ; value: `{get_setting_str(path_to_setting, "unreachable")}`')
-                    case other:
-                        slow_print(f'unknown action: {act}')
+            settings_menu()
 
         elif cmd in CMD_TAGS:
             slow_print(tags)
